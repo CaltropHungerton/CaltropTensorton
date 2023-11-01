@@ -49,6 +49,18 @@ __global__ void matrixDot(float* first, float* second, float* result, int n, int
     }
 }
 
+__global__ void matrixScalarMult(float* mat, float scalar, float* result)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    result[idx] = mat[idx] * scalar;
+}
+
+__global__ void matrixScalarDiv(float* mat, float scalar, float* result)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    result[idx] = mat[idx] / scalar;
+}
+
 __global__ void matrixTranspose(float* src, float* dest, int rows, int cols)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -56,6 +68,9 @@ __global__ void matrixTranspose(float* src, float* dest, int rows, int cols)
     int y = idx % cols;
     dest[(y * rows) + x] = src[idx];
 }
+
+
+
 
 
 class Matrix
@@ -164,8 +179,6 @@ public:
             delete[] hostData;
         }
     }
-
-    // TODO make matrices from array literals
     
     // destructor
     ~Matrix()
@@ -271,6 +284,30 @@ public:
         return result;
     }
 
+    Matrix& operator+=(const Matrix& other)
+    {
+        if (this->cols != other.cols || this->rows != other.rows)
+        {
+            throw std::invalid_argument("Matrix dimensions do not match for addition.");
+        }
+        matrixAdd << < 1, this->rows* this->cols >> > (this->data, other.data, this->data); // calling regular add kernel but w/ left matrix as result
+        cudaDeviceSynchronize();
+
+        return *this;
+    }
+
+    Matrix& operator-=(const Matrix& other)
+    {
+        if (this->cols != other.cols || this->rows != other.rows)
+        {
+            throw std::invalid_argument("Matrix dimensions do not match for addition.");
+        }
+        matrixSub << < 1, this->rows* this->cols >> > (this->data, other.data, this->data); // calling regular add kernel but w/ left matrix as result
+        cudaDeviceSynchronize();
+
+        return *this;
+    }
+
     Matrix operator*(const Matrix& other) const
     {
         if (this->cols != other.rows)
@@ -282,10 +319,48 @@ public:
         cudaMalloc(&result.data, this->rows * other.cols * sizeof(float));
 
         matrixDot <<<1, this->rows * other.cols>>> (this->data, other.data, result.data, this->cols, other.cols);
-
         cudaDeviceSynchronize();
         
         return result;
+    }
+
+    // Matrix scalar multiplication!!
+    Matrix operator*(const float scalar) const
+    {
+        Matrix result(this->rows, this->cols);
+        cudaMalloc(&result.data, this->rows * this->cols * sizeof(float));
+
+        matrixScalarMult <<< 1, this->rows * this->cols >>> (this->data, scalar, result.data);
+        cudaDeviceSynchronize();
+
+        return result;
+    }
+
+    Matrix& operator*=(const float scalar)
+    {
+        matrixScalarMult <<< 1, this->rows* this->cols >>> (this->data, scalar, this->data);
+        cudaDeviceSynchronize();
+
+        return *this;
+    }
+
+    Matrix operator/(const float scalar) const
+    {
+        Matrix result(this->rows, this->cols);
+        cudaMalloc(&result.data, this->rows * this->cols * sizeof(float));
+
+        matrixScalarDiv <<< 1, this->rows* this->cols >>> (this->data, scalar, result.data);
+        cudaDeviceSynchronize();
+
+        return result;
+    }
+
+    Matrix& operator/=(const float scalar)
+    {
+        matrixScalarDiv << < 1, this->rows* this->cols >> > (this->data, scalar, this->data);
+        cudaDeviceSynchronize();
+
+        return *this;
     }
 
     Matrix T() const
@@ -299,15 +374,24 @@ public:
         return transposed;
     }
 
-    // operator overload for double addition, subtraction, multiplication, (division?? integer division? modulo???) on matrix, hadamard (mat1.had(mat2);)
+
+
+    // need to figure out how to do scalar multiplication/division overload
+
+    // operator overload for float addition, subtraction, multiplication, (division?? integer division? modulo???) on matrix, hadamard (mat1.had(mat2);)
     // +=, -=, does operation in place
     // 
     // probably just want to do multiplication for now
-    // switch everything to floats?
     
 };
 
-// TODO scalar multiplication, applying (atomic) math functions, saving matrices, loading matrices
+// global non-member function for making matrix-scalar multiplication commutative
+Matrix operator*(const float scalar, const Matrix mat)
+{
+    return mat * scalar;
+}
+
+// TODO applying (atomic) math functions, saving matrices, loading matrices
 // long term: literally make AUTODIFF for backpropagation, infrastructure for mini-batch inference/gradient descent, other stuff necessary for
 // moderately-fledged NN library, make OOP stuff more encapsulated
 // 
@@ -318,11 +402,11 @@ public:
 
 // list of math functions to implement (sensible derivatives): pow, root, exp, log, sin, cos
 
-/**/
+// add more boundary checking, imporant once you make block/thread deployment more involved
 
 int main() 
 {
-    
+    /*
     std::cout << "testing out matrix creation\n";
     Matrix a = Matrix(5, 5, Matrix::InitType::Random);
     a.print();
@@ -376,4 +460,36 @@ int main()
     transposeTest.print();
     Matrix max = transposeTest.T();
     max.print();
+
+    k = Matrix(4, 4, 5);
+    i.print();
+    j.print();
+    k.print();
+    std::cout << "testing operator overloading for adding/subtracting in place\n";
+
+    i += j;
+    i.print();
+    i -= j + k;
+    i.print();
+    */
+    Matrix first = Matrix(5, 5, Matrix::InitType::Identity);
+    Matrix second = Matrix(5, 3, Matrix::InitType::He);
+    first.print();
+    second.print();
+    Matrix result1 = first * 5;
+    Matrix result2 = 6 * first * second * 5;
+    result1.print();
+    result2.print();
+
+    Matrix jeff = Matrix(5, 5, Matrix::InitType::Identity);
+    jeff.print();
+    jeff *= 72;
+    jeff.print();
+
+    Matrix joe = Matrix(4, 4, 6);
+    joe.print();
+    Matrix mama = joe / 2;
+    mama.print();
+    joe /= 4;
+    joe.print();
 }
