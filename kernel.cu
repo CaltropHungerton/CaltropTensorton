@@ -1,4 +1,3 @@
-﻿
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 #include <curand_kernel.h>
@@ -9,65 +8,11 @@
 #include <random>
 #include <stdexcept>
 
-
 /*
-std::default_random_engine generator;
-std::normal_distribution<double> distribution(1.0, 1.0);
-*/
-
-/*
-plans:
-i am going to create a linear algebra library
-
-matrix scalar multiplication: parallelize over every single element in strided matrix
-
-
-it is tempting to have each of these operations be their own little cuda kernel things (agglomerate in order to do mv or mm mult)
-but that is probably a bad idea
-
-i should also practice writing good test harnesses. that would look EPICCC to an employer
-
-
-
-
-think about what matrix object/struct looks like
-
-*/
-
-
-/*
-pointer to strided array
-int rows, cols
-
-
-matrix object/struct
-probably have cuda malloc managed
-
 make 2d matrix of various dimensions (generalize later, this is just a first attempt)
-
-initializations as different constructors? remind myself what the c++ rule of # bullshit is for this
 initializations with data/arrays, from file
-ARGS: (int rows, int cols, float val) #fill with that value
-ARGS: (int rows, int cols, std::string arg) # could be identity, types of random initialization,
-ARGS: (int rows, int cols, float* arr) # will need to change this, because we're moving posession of memory here
-
-get dims
-
-print
-
-operator overloading
-matrix matrix +: need to have same dimensions
-matrix matrix dot product *: need to have same inner dimensions, allocate new matrix of right dimentions, return new constructed matrix
-
-transpose makes more sense as just a method i think. either M.transpose() or M.T().
-
-Matrix T() -- think about how this will work.
-
+get shape/dims
 matrix norms
-
-des
-
-i think i will have
 */
 
 __global__ void fill(double* data, double val)
@@ -94,23 +39,29 @@ __global__ void matrixSub(double* first, double* second, double* result)
     result[idx] = first[idx] - second[idx];
 }
 
-
 // k is the number of cols of the second matrix, sry for obscurity, i just wanted compactness
 __global__ void matrixDot(double* first, double* second, double* result, int n, int k)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     for (int i = 0; i < n; i++)
     {
-        result[idx] += first[((idx / k) * n) + i] * second[(i * k) + (idx % k)];
+        result[idx] += first[((idx / k) * n) + i] * second[(i * k) + (idx % k)]; // TODO optimize with tiling/whatever for efficiency/cache usage
     }
 }
 
-//matrixDot <<<1, this->rows * other.cols>>> (this->data, other.data, result.data, this->cols, other.rows);
+__global__ void matrixTranspose(double* src, double* dest, int rows, int cols)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int x = idx / cols;
+    int y = idx % cols;
+    dest[(y * rows) + x] = src[idx];
+}
+
 
 class Matrix
 {
 public:
-    int rows, cols; // TODO ensure these can't be made negative
+    int rows, cols;
     double* data;
 
     enum class InitType
@@ -130,10 +81,20 @@ public:
         cudaDeviceSynchronize();
     }
 
+    Matrix(int r, int c, const double* input_arr) : rows(r), cols(c)
+    {
+        cudaMalloc(&data, r * c * sizeof(double));
+        cudaMemcpy(data, input_arr, r * c * sizeof(double), cudaMemcpyHostToDevice);
+    }
+
     // arg constructor
     Matrix(int r, int c, InitType type) : rows(r), cols(c)
     {
-        if (type == Matrix::InitType::Identity)
+        if (r < 1 || c < 1)
+        {
+            throw std::invalid_argument("Matrix dimensions cannot be smaller than 1.");
+        }
+        if (type == Matrix::InitType::Identity) // TODO make this whole thing a switch statement
         {
             if (r == c)
             {
@@ -185,7 +146,7 @@ public:
             delete[] hostData;
         }
 
-        else if (type == Matrix::InitType::He) // TODO check to make sure i have input dims correct
+        else if (type == Matrix::InitType::He)
         {
             double* hostData = new double[r * c];
 
@@ -275,7 +236,7 @@ public:
 
         std::cout << "////////////////////////////////////////\n";
 
-        cudaFree(dup);
+        free(dup);
     }
 
     Matrix operator+(const Matrix& other) const
@@ -298,7 +259,7 @@ public:
     {
         if (this->cols != other.cols || this->rows != other.rows)
         {
-            throw std::invalid_argument("Matrix dimensions do not match for addition.");
+            throw std::invalid_argument("Matrix dimensions do not match for subtraction.");
         }
 
         Matrix result(this->rows, this->cols);
@@ -322,21 +283,46 @@ public:
 
         matrixDot <<<1, this->rows * other.cols>>> (this->data, other.data, result.data, this->cols, other.cols);
 
-        /*
-        think about what this function needs:
-        send in dimensions of arrays, rx(c r)xc
-        */
-
         cudaDeviceSynchronize();
         
         return result;
     }
 
-    // TODO matrix dot product, transpose, scalar multiplication, applying math functions, etc etc.
+    Matrix T() const
+    {
+        Matrix transposed = Matrix(this->cols, this->rows);
+        cudaMalloc(&transposed.data, this->cols * this->rows * sizeof(double));
+
+        matrixTranspose <<< 1, this->rows * this->cols >>> (this->data, transposed.data, this->rows, this->cols);
+        cudaDeviceSynchronize();
+        
+        return transposed;
+    }
+
+    // operator overload for double addition, subtraction, multiplication, (division?? integer division? modulo???) on matrix, hadamard (mat1.had(mat2);)
+    // +=, -=, does operation in place
+    // 
+    // probably just want to do multiplication for now
+    // switch everything to floats?
+    
 };
+
+// TODO scalar multiplication, applying (atomic) math functions, saving matrices, loading matrices
+// long term: literally make AUTODIFF for backpropagation, infrastructure for mini-batch inference/gradient descent, other stuff necessary for
+// moderately-fledged NN library, make OOP stuff more encapsulated
+// 
+
+// i can do stack arrays of whatever dimension just fine, just need to pass pointer to array into the constructor
+// heap arrays: should be allocated as 1d. i can make that happen with the dataloader helper functions. can't think of any other instance where that would
+// actually be used.
+
+// list of math functions to implement (sensible derivatives): pow, root, exp, log, sin, cos
+
+/**/
 
 int main() 
 {
+    
     std::cout << "testing out matrix creation\n";
     Matrix a = Matrix(5, 5, Matrix::InitType::Random);
     a.print();
@@ -374,4 +360,20 @@ int main()
     l.print();
     m.print();
     n.print();
+    
+    double stackMatrix[4][3] = { {1,2,3},{4,5,6},{7,8,9},{10,11,12} };
+    double* heapMatrix = new double[9] {4,2,3,-8,2.5,6,1,0,1};
+    Matrix mat1 = Matrix(4, 3, *stackMatrix);
+    Matrix mat2 = Matrix(3, 3, heapMatrix);
+    mat1.print();
+    mat2.print();
+    Matrix mat3 = mat1 * mat2;
+    mat3.print();
+    
+    std::cout << "testing transposes:\n";
+    double thearr[5][4] = { {1,2,3,4},{1,0,0,0},{1,1,0,0},{1,1,1,0},{1,1,1,1} };
+    Matrix transposeTest = Matrix(5, 4, *thearr);
+    transposeTest.print();
+    Matrix max = transposeTest.T();
+    max.print();
 }
