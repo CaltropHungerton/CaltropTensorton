@@ -15,32 +15,32 @@ get shape/dims
 matrix norms
 */
 
-__global__ void fill(double* data, double val)
+__global__ void fill(float* data, float val)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     data[idx] = val;
 }
 
-__global__ void diagfill(double* data, int n, double val)
+__global__ void diagfill(float* data, int n, float val)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     data[(idx * n) + idx] = val;
 }
 
-__global__ void matrixAdd(double* first, double* second, double* result)
+__global__ void matrixAdd(float* first, float* second, float* result)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     result[idx] = first[idx] + second[idx];
 }
 
-__global__ void matrixSub(double* first, double* second, double* result)
+__global__ void matrixSub(float* first, float* second, float* result)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     result[idx] = first[idx] - second[idx];
 }
 
 // k is the number of cols of the second matrix, sry for obscurity, i just wanted compactness
-__global__ void matrixDot(double* first, double* second, double* result, int n, int k)
+__global__ void matrixDot(float* first, float* second, float* result, int n, int k)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     for (int i = 0; i < n; i++)
@@ -49,7 +49,7 @@ __global__ void matrixDot(double* first, double* second, double* result, int n, 
     }
 }
 
-__global__ void matrixTranspose(double* src, double* dest, int rows, int cols)
+__global__ void matrixTranspose(float* src, float* dest, int rows, int cols)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     int x = idx / cols;
@@ -62,7 +62,7 @@ class Matrix
 {
 public:
     int rows, cols;
-    double* data;
+    float* data;
 
     enum class InitType
     {
@@ -74,17 +74,17 @@ public:
 
     Matrix(int r, int c) : rows(r), cols(c), data(0) {}
 
-    Matrix(int r, int c, double val) : rows(r), cols(c) // fill with single value
+    Matrix(int r, int c, float val) : rows(r), cols(c) // fill with single value
     {
-        cudaMalloc(&data, r * c * sizeof(double));
+        cudaMalloc(&data, r * c * sizeof(float));
         fill <<<1, rows * cols>>> (data, val); // TODO make this more sophisticated
         cudaDeviceSynchronize();
     }
 
-    Matrix(int r, int c, const double* input_arr) : rows(r), cols(c)
+    Matrix(int r, int c, const float* input_arr) : rows(r), cols(c)
     {
-        cudaMalloc(&data, r * c * sizeof(double));
-        cudaMemcpy(data, input_arr, r * c * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMalloc(&data, r * c * sizeof(float));
+        cudaMemcpy(data, input_arr, r * c * sizeof(float), cudaMemcpyHostToDevice);
     }
 
     // arg constructor
@@ -98,7 +98,7 @@ public:
         {
             if (r == c)
             {
-                cudaMalloc(&data, r * c * sizeof(double));
+                cudaMalloc(&data, r * c * sizeof(float));
                 fill <<<1, rows * cols>>> (data, 0); // TODO make this more sophisticated
                 cudaDeviceSynchronize();
                 diagfill <<<1, rows>>> (data, rows, 1); // this as well
@@ -112,54 +112,54 @@ public:
 
         else if (type == Matrix::InitType::Random)
         {
-            double* hostData = new double[r * c];
+            float* hostData = new float[r * c];
 
             std::default_random_engine generator;
-            std::normal_distribution<double> distribution(0, sqrt(.01));
+            std::normal_distribution<float> distribution(0, sqrt(.01));
 
             for (int i = 0; i < r * c; i++)
             {
                 hostData[i] = distribution(generator);
             }
 
-            cudaMalloc(&data, r * c * sizeof(double));
-            cudaMemcpy(data, hostData, r * c * sizeof(double), cudaMemcpyHostToDevice);
+            cudaMalloc(&data, r * c * sizeof(float));
+            cudaMemcpy(data, hostData, r * c * sizeof(float), cudaMemcpyHostToDevice);
 
             delete[] hostData;
         }
 
         else if (type == Matrix::InitType::Xavier)
         {
-            double* hostData = new double[r * c];
+            float* hostData = new float[r * c];
 
             std::default_random_engine generator;
-            std::normal_distribution<double> distribution(0, sqrt(2 / double(r + c)));
+            std::normal_distribution<float> distribution(0, sqrt(2 / float(r + c)));
 
             for (int i = 0; i < r * c; i++)
             {
                 hostData[i] = distribution(generator);
             }
 
-            cudaMalloc(&data, r * c * sizeof(double));
-            cudaMemcpy(data, hostData, r * c * sizeof(double), cudaMemcpyHostToDevice);
+            cudaMalloc(&data, r * c * sizeof(float));
+            cudaMemcpy(data, hostData, r * c * sizeof(float), cudaMemcpyHostToDevice);
 
             delete[] hostData;
         }
 
         else if (type == Matrix::InitType::He)
         {
-            double* hostData = new double[r * c];
+            float* hostData = new float[r * c];
 
             std::default_random_engine generator;
-            std::normal_distribution<double> distribution(0, sqrt(2 / double(c)));
+            std::normal_distribution<float> distribution(0, sqrt(2 / float(c)));
 
             for (int i = 0; i < r * c; i++)
             {
                 hostData[i] = distribution(generator);
             }
 
-            cudaMalloc(&data, r * c * sizeof(double));
-            cudaMemcpy(data, hostData, r * c * sizeof(double), cudaMemcpyHostToDevice);
+            cudaMalloc(&data, r * c * sizeof(float));
+            cudaMemcpy(data, hostData, r * c * sizeof(float), cudaMemcpyHostToDevice);
 
             delete[] hostData;
         }
@@ -198,8 +198,8 @@ public:
     // copy constructor
     Matrix(const Matrix& other) : rows(other.rows), cols(other.cols)
     {
-        cudaMalloc(&data, rows * cols * sizeof(double));
-        cudaMemcpy(data, other.data, rows * cols * sizeof(double), cudaMemcpyDeviceToDevice);
+        cudaMalloc(&data, rows * cols * sizeof(float));
+        cudaMemcpy(data, other.data, rows * cols * sizeof(float), cudaMemcpyDeviceToDevice);
     }
 
     // copy assignment operator
@@ -212,16 +212,16 @@ public:
             rows = other.rows;
             cols = other.cols;
 
-            cudaMalloc(&data, rows * cols * sizeof(double));
-            cudaMemcpy(data, other.data, rows * cols * sizeof(double), cudaMemcpyDeviceToDevice);
+            cudaMalloc(&data, rows * cols * sizeof(float));
+            cudaMemcpy(data, other.data, rows * cols * sizeof(float), cudaMemcpyDeviceToDevice);
         }
         return *this;
     }
 
     void print()
     {
-        double* dup = (double*)malloc(rows * cols * sizeof(double));
-        cudaMemcpy(dup, data, rows * cols * sizeof(double), cudaMemcpyDeviceToHost);
+        float* dup = (float*)malloc(rows * cols * sizeof(float));
+        cudaMemcpy(dup, data, rows * cols * sizeof(float), cudaMemcpyDeviceToHost);
 
         std::cout << "////////////////////////////////////////\n";
 
@@ -247,7 +247,7 @@ public:
         }
 
         Matrix result(this->rows, this->cols);
-        cudaMalloc(&result.data, this->rows * this->cols * sizeof(double));
+        cudaMalloc(&result.data, this->rows * this->cols * sizeof(float));
         
         matrixAdd <<< 1, this->rows * this->cols >>> (this->data, other.data, result.data); // TODO make more sophisticated for the love of god
         cudaDeviceSynchronize();
@@ -263,7 +263,7 @@ public:
         }
 
         Matrix result(this->rows, this->cols);
-        cudaMalloc(&result.data, this->rows * this->cols * sizeof(double));
+        cudaMalloc(&result.data, this->rows * this->cols * sizeof(float));
 
         matrixSub <<< 1, this->rows * this->cols >>> (this->data, other.data, result.data); // TODO make more sophisticated for the love of god
         cudaDeviceSynchronize();
@@ -279,7 +279,7 @@ public:
         }
 
         Matrix result(this->rows, other.cols);
-        cudaMalloc(&result.data, this->rows * other.cols * sizeof(double));
+        cudaMalloc(&result.data, this->rows * other.cols * sizeof(float));
 
         matrixDot <<<1, this->rows * other.cols>>> (this->data, other.data, result.data, this->cols, other.cols);
 
@@ -291,7 +291,7 @@ public:
     Matrix T() const
     {
         Matrix transposed = Matrix(this->cols, this->rows);
-        cudaMalloc(&transposed.data, this->cols * this->rows * sizeof(double));
+        cudaMalloc(&transposed.data, this->cols * this->rows * sizeof(float));
 
         matrixTranspose <<< 1, this->rows * this->cols >>> (this->data, transposed.data, this->rows, this->cols);
         cudaDeviceSynchronize();
@@ -361,8 +361,8 @@ int main()
     m.print();
     n.print();
     
-    double stackMatrix[4][3] = { {1,2,3},{4,5,6},{7,8,9},{10,11,12} };
-    double* heapMatrix = new double[9] {4,2,3,-8,2.5,6,1,0,1};
+    float stackMatrix[4][3] = { {1,2,3},{4,5,6},{7,8,9},{10,11,12} };
+    float* heapMatrix = new float[9] {4,2,3,-8,2.5,6,1,0,1};
     Matrix mat1 = Matrix(4, 3, *stackMatrix);
     Matrix mat2 = Matrix(3, 3, heapMatrix);
     mat1.print();
@@ -371,7 +371,7 @@ int main()
     mat3.print();
     
     std::cout << "testing transposes:\n";
-    double thearr[5][4] = { {1,2,3,4},{1,0,0,0},{1,1,0,0},{1,1,1,0},{1,1,1,1} };
+    float thearr[5][4] = { {1,2,3,4},{1,0,0,0},{1,1,0,0},{1,1,1,0},{1,1,1,1} };
     Matrix transposeTest = Matrix(5, 4, *thearr);
     transposeTest.print();
     Matrix max = transposeTest.T();
