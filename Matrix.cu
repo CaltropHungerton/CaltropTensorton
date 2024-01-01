@@ -1,4 +1,4 @@
-﻿#include "cuda_runtime.h"
+#include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 #include <curand_kernel.h>
 
@@ -9,6 +9,8 @@
 #include <stdexcept>
 #include <math.h>
 
+int blockSize = 256; // TODO experiment with other sizes like 512, etc.
+
 /*
 make 2d matrix of various dimensions (generalize later, this is just a first attempt)
 initializations with data/arrays, from file
@@ -16,86 +18,119 @@ get shape/dims
 matrix norms
 */
 
-__global__ void fill(float* data, float val)
+__global__ void fill(float* data, float val, int rows, int cols)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    data[idx] = val;
+
+    if (idx < rows * cols)
+    {
+        data[idx] = val;
+    }
 }
 
-__global__ void diagfill(float* data, int n, float val)
+__global__ void diagfill(float* data, int rows, float val)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    data[(idx * n) + idx] = val;
+    data[(idx * rows) + idx] = val;
 }
 
-__global__ void matrixAdd(float* first, float* second, float* result)
+__global__ void matrixAdd(float* first, float* second, float* result, int rows, int cols)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    result[idx] = first[idx] + second[idx];
+
+    if (idx < rows * cols) // TODO: for kernels where we don't need rows and cols indvidually, just pass the multiplied size. wasteful mult
+    {
+        result[idx] = first[idx] + second[idx];
+    }
 }
 
-__global__ void matrixSub(float* first, float* second, float* result)
+__global__ void matrixSub(float* first, float* second, float* result, int rows, int cols)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    result[idx] = first[idx] - second[idx];
+
+    if (idx < rows * cols)
+    {
+        result[idx] = first[idx] - second[idx];
+    }
 }
 
 // k is the number of cols of the second matrix, sry for obscurity, i just wanted compactness
-__global__ void matrixDot(float* first, float* second, float* result, int n, int k)
+__global__ void matrixDot(float* first, float* second, float* result, int cols1, int cols2, int rows)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    for (int i = 0; i < n; i++)
+    if (idx < rows * cols2)
     {
-        result[idx] += first[((idx / k) * n) + i] * second[(i * k) + (idx % k)]; // TODO optimize with tiling/whatever for efficiency/cache usage
-    }// also i need to ensure that the result matrix si
+        for (int i = 0; i < cols1; i++)
+        {
+            result[idx] += first[((idx / cols2) * cols1) + i] * second[(i * cols2) + (idx % cols2)]; // TODO optimize with tiling/whatever for efficiency/cache usage
+        }// also i need to ensure that the result matrix si
+    }
 }
 
-__global__ void matrixScalarMult(float* mat, float scalar, float* result)
+__global__ void matrixScalarMult(float* mat, float scalar, float* result, int rows, int cols)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    result[idx] = mat[idx] * scalar;
+    if (idx < rows * cols)
+    {
+        result[idx] = mat[idx] * scalar;
+    }
 }
 
-__global__ void matrixScalarDiv(float* mat, float scalar, float* result)
+__global__ void matrixScalarDiv(float* mat, float scalar, float* result, int rows, int cols)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    result[idx] = mat[idx] / scalar;
+    if (idx < rows * cols)
+    {
+        result[idx] = mat[idx] / scalar;
+    }
 }
 
 __global__ void matrixTranspose(float* src, float* dest, int rows, int cols)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    int x = idx / cols;
-    int y = idx % cols;
-    dest[(y * rows) + x] = src[idx];
-}
-
-__global__ void matrixRELU(float* src, float* dest)
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (src[idx] < 0)
+    if (idx < rows * cols)
     {
-        dest[idx] = 0;
-    }
-    else
-    {
-        dest[idx] = src[idx];
+        int x = idx / cols;
+        int y = idx % cols;
+        dest[(y * rows) + x] = src[idx];
     }
 }
 
-__global__ void matrixExp(float* src, float* dest)
+__global__ void matrixRELU(float* src, float* dest, int size)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    dest[idx] = exp(src[idx]);
+    if (idx < size)
+    {
+        if (src[idx] < 0)
+        {
+            dest[idx] = 0;
+        }
+        else
+        {
+            dest[idx] = src[idx];
+        }
+    }
 }
 
-__global__ void matrixHad(float* src1, float* src2, float* dest)
+__global__ void matrixExp(float* src, float* dest, int rows, int cols)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    dest[idx] = src1[idx] * src2[idx];
+    if (idx < rows * cols)
+    {
+        dest[idx] = exp(src[idx]);
+    }
 }
 
-__global__ void gradRELU(float* grad, float* data, float* dest) // bespoke function for relu backprop, kind of hacky/ad hoc but w/e. TODO: test
+__global__ void matrixHad(float* src1, float* src2, float* dest, int rows, int cols)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < rows * cols)
+    {
+        dest[idx] = src1[idx] * src2[idx];
+    }
+}
+
+__global__ void gradRELU(float* grad, float* data, float* dest) // bespoke function for relu backprop, kind of hacky/ad hoc but w/e. TODO: fix
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (data[idx] >= 0)
@@ -104,13 +139,16 @@ __global__ void gradRELU(float* grad, float* data, float* dest) // bespoke funct
     }
 }
 
-__global__ void matrixScalarReciprocal(float scalar, float* data, float* dest) // TODO test
+__global__ void matrixScalarReciprocal(float scalar, float* data, float* dest, int rows, int cols)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    dest[idx] = scalar / data[idx];
+    if (idx < rows * cols)
+    {
+        dest[idx] = scalar / data[idx];
+    }
 }
 
-__global__ void avgToColumn(float* src, float* dest, int cols) // TODO test, also add parallel sum reductions maybe
+__global__ void avgToColumn(float* src, float* dest, int cols) // TODO fix/test, also add parallel sum reductions maybe
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     for (int i = 0; i < cols; i++)
@@ -119,6 +157,8 @@ __global__ void avgToColumn(float* src, float* dest, int cols) // TODO test, als
     }
     dest[idx] /= cols;
 }
+
+// TODO add sum to column
 
 class Matrix
 {
@@ -139,7 +179,9 @@ public:
     Matrix(int r, int c, float val) : rows(r), cols(c) // fill with single value
     {
         cudaMalloc(&data, r * c * sizeof(float));
-        fill <<<1, rows * cols>>> (data, val); // TODO make this more sophisticated
+        int numBlocks = ((r * c) + blockSize - 1) / blockSize;
+
+        fill <<<numBlocks, blockSize>>> (data, val, rows, cols);
         cudaDeviceSynchronize();
     }
 
@@ -161,9 +203,12 @@ public:
             if (r == c)
             {
                 cudaMalloc(&data, r * c * sizeof(float));
-                fill <<<1, rows * cols>>> (data, 0); // TODO make this more sophisticated
+
+                int numBlocks = ((r * c) + blockSize - 1) / blockSize;
+
+                fill <<<numBlocks, blockSize>>> (data, 0, rows, cols); // TODO make this more sophisticated
                 cudaDeviceSynchronize();
-                diagfill <<<1, rows>>> (data, rows, 1); // this as well
+                diagfill <<<1, rows>>> (data, rows, 1); // TODO possibly extend for matrices with more than 1024 rows (larger than block size)
                 cudaDeviceSynchronize();
             }
             else
@@ -308,8 +353,10 @@ public:
 
         Matrix result(this->rows, this->cols);
         cudaMalloc(&result.data, this->rows * this->cols * sizeof(float));
+
+        int numBlocks = ((this->rows * this->cols) + blockSize - 1) / blockSize;
         
-        matrixAdd <<< 1, this->rows * this->cols >>> (this->data, other.data, result.data); // TODO make more sophisticated for the love of god
+        matrixAdd <<<numBlocks, blockSize>>> (this->data, other.data, result.data, this->rows, this->cols);
         cudaDeviceSynchronize();
 
         return result;
@@ -325,7 +372,9 @@ public:
         Matrix result(this->rows, this->cols);
         cudaMalloc(&result.data, this->rows * this->cols * sizeof(float));
 
-        matrixSub <<< 1, this->rows * this->cols >>> (this->data, other.data, result.data); // TODO make more sophisticated for the love of god
+        int numBlocks = ((this->rows * this->cols) + blockSize - 1) / blockSize;
+
+        matrixSub <<<numBlocks, blockSize>>> (this->data, other.data, result.data, this->rows, this->cols); // TODO make more sophisticated for the love of god
         cudaDeviceSynchronize();
 
         return result;
@@ -337,7 +386,10 @@ public:
         {
             throw std::invalid_argument("Matrix dimensions do not match for addition.");
         }
-        matrixAdd << < 1, this->rows* this->cols >> > (this->data, other.data, this->data); // calling regular add kernel but w/ left matrix as result
+
+        int numBlocks = ((this->rows * this->cols) + blockSize - 1) / blockSize;
+
+        matrixAdd <<<numBlocks, blockSize>>> (this->data, other.data, this->data, this->rows, this->cols); // calling regular add kernel but w/ left matrix as result
         cudaDeviceSynchronize();
 
         return *this;
@@ -349,7 +401,10 @@ public:
         {
             throw std::invalid_argument("Matrix dimensions do not match for addition.");
         }
-        matrixSub << < 1, this->rows* this->cols >> > (this->data, other.data, this->data); // calling regular add kernel but w/ left matrix as result
+
+        int numBlocks = ((this->rows * this->cols) + blockSize - 1) / blockSize;
+
+        matrixSub <<<numBlocks, blockSize>>> (this->data, other.data, this->data, this->rows, this->cols); // calling regular add kernel but w/ left matrix as result
         cudaDeviceSynchronize();
 
         return *this;
@@ -365,7 +420,9 @@ public:
         Matrix result(this->rows, other.cols, 0.0f);
         cudaMalloc(&result.data, this->rows * other.cols * sizeof(float));
 
-        matrixDot <<<1, this->rows * other.cols>>> (this->data, other.data, result.data, this->cols, other.cols);
+        int numBlocks = ((this->rows * other.cols) + blockSize - 1) / blockSize;
+
+        matrixDot <<<numBlocks, blockSize>>> (this->data, other.data, result.data, this->cols, other.cols, this->rows);
         cudaDeviceSynchronize();
         
         return result;
@@ -377,7 +434,9 @@ public:
         Matrix result(this->rows, this->cols);
         cudaMalloc(&result.data, this->rows * this->cols * sizeof(float));
 
-        matrixScalarMult <<< 1, this->rows * this->cols >>> (this->data, scalar, result.data);
+        int numBlocks = ((this->rows * this->cols) + blockSize - 1) / blockSize;
+
+        matrixScalarMult <<<numBlocks, blockSize>>> (this->data, scalar, result.data, this->rows, this->cols);
         cudaDeviceSynchronize();
 
         return result;
@@ -385,7 +444,9 @@ public:
 
     Matrix& operator*=(const float scalar)
     {
-        matrixScalarMult <<< 1, this->rows* this->cols >>> (this->data, scalar, this->data);
+        int numBlocks = ((this->rows * this->cols) + blockSize - 1) / blockSize;
+
+        matrixScalarMult <<<numBlocks, blockSize>>> (this->data, scalar, this->data, this->rows, this->cols);
         cudaDeviceSynchronize();
 
         return *this;
@@ -396,7 +457,9 @@ public:
         Matrix result(this->rows, this->cols);
         cudaMalloc(&result.data, this->rows * this->cols * sizeof(float));
 
-        matrixScalarDiv <<< 1, this->rows* this->cols >>> (this->data, scalar, result.data);
+        int numBlocks = ((this->rows * this->cols) + blockSize - 1) / blockSize;
+
+        matrixScalarDiv <<<numBlocks, blockSize>>> (this->data, scalar, result.data, this->rows, this->cols);
         cudaDeviceSynchronize();
 
         return result;
@@ -404,7 +467,9 @@ public:
 
     Matrix& operator/=(const float scalar)
     {
-        matrixScalarDiv << < 1, this->rows* this->cols >> > (this->data, scalar, this->data);
+        int numBlocks = ((this->rows * this->cols) + blockSize - 1) / blockSize;
+
+        matrixScalarDiv <<<numBlocks, blockSize>>> (this->data, scalar, this->data, this->rows, this->cols);
         cudaDeviceSynchronize();
 
         return *this;
@@ -415,7 +480,9 @@ public:
         Matrix transposed = Matrix(this->cols, this->rows);
         cudaMalloc(&transposed.data, this->cols * this->rows * sizeof(float));
 
-        matrixTranspose <<< 1, this->rows * this->cols >>> (this->data, transposed.data, this->rows, this->cols);
+        int numBlocks = ((this->rows * this->cols) + blockSize - 1) / blockSize;
+
+        matrixTranspose <<<numBlocks, blockSize>>> (this->data, transposed.data, this->rows, this->cols);
         cudaDeviceSynchronize();
         
         return transposed;
@@ -426,7 +493,9 @@ public:
         Matrix result = Matrix(this->rows, this->cols);
         cudaMalloc(&result.data, this->rows * this->cols * sizeof(float));
 
-        matrixRELU <<< 1, this->rows * this->cols >>> (this->data, result.data);
+        int numBlocks = ((this->rows * this->cols) + blockSize - 1) / blockSize;
+
+        matrixRELU <<<numBlocks, blockSize>>> (this->data, result.data, this->rows * this->cols);
         cudaDeviceSynchronize();
 
         return result;
@@ -437,7 +506,9 @@ public:
         Matrix result = Matrix(this->rows, this->cols);
         cudaMalloc(&result.data, this->rows * this->cols * sizeof(float));
 
-        matrixExp << < 1, this->rows* this->cols >> > (this->data, result.data);
+        int numBlocks = ((this->rows * this->cols) + blockSize - 1) / blockSize;
+
+        matrixExp <<<numBlocks, blockSize>>> (this->data, result.data, this->rows, this->cols);
         cudaDeviceSynchronize();
 
         return result;
@@ -459,7 +530,9 @@ Matrix operator/(const float scalar, const Matrix mat) // TODO test
     Matrix result(mat.rows, mat.cols);
     cudaMalloc(&result.data, mat.rows * mat.cols * sizeof(float));
 
-    matrixScalarReciprocal <<< 1, mat.rows * mat.cols >>> (scalar, mat.data, result.data);
+    int numBlocks = ((mat.rows * mat.cols) + blockSize - 1) / blockSize;
+
+    matrixScalarReciprocal <<<numBlocks, blockSize>>> (scalar, mat.data, result.data, mat.rows, mat.cols); 
     cudaDeviceSynchronize();
     return result;
 }
@@ -474,7 +547,9 @@ Matrix had(const Matrix mat1, const Matrix mat2)
     Matrix result = Matrix(mat1.rows, mat1.cols);
     cudaMalloc(&result.data, mat1.rows * mat1.cols * sizeof(float));
 
-    matrixHad << < 1, mat1.rows * mat1.cols >> > (mat1.data, mat2.data, result.data);
+    int numBlocks = ((mat1.rows * mat1.cols) + blockSize - 1) / blockSize;
+
+    matrixHad <<<numBlocks, blockSize>>> (mat1.data, mat2.data, result.data, mat1.rows, mat1.cols);
     cudaDeviceSynchronize();
 
     return result;
@@ -508,10 +583,8 @@ Matrix avgToColumn(const Matrix mat)
 // sums, axis sums
 // data loaders, whatever would be convenient as an interface for the dataloading functions in the neural network class
 
-// add more boundary checking, imporant once you make block/thread deployment more involved
-
 int main()
-{
+{   
     /*
     std::cout << "testing out matrix creation\n";
     Matrix a = Matrix(5, 5, Matrix::InitType::Random);
@@ -578,6 +651,12 @@ int main()
     i -= j + k;
     i.print();
 
+    Matrix y = Matrix(50, 50, 5);
+
+    Matrix z = 1 / y;
+    z.print();
+    */
+    /*
     Matrix first = Matrix(5, 5, Matrix::InitType::Identity);
     Matrix second = Matrix(5, 3, Matrix::InitType::He);
     first.print();
@@ -599,14 +678,15 @@ int main()
     joe /= 4;
     joe.print();
     */
-
+    /*
     std::cout << "testing RELU\n";
     float thearray[5][4] = { {1,-3.2359875,3,4},{1,-5,-3,0},{1,1,-157,0},{1,1,1,-1},{1,-1,1,1} };
     Matrix reluTest = Matrix(5, 4, *thearray);
     reluTest.print();
     Matrix reluTested = reluTest.relu();
     reluTested.print();
-
+    */
+    /*
     std::cout << "testing exp\n";
     float exparray[5][4] = { {1, -3.2359875, 3, 4}, { 12,-5,-3,0 }, { 5,6,-157,7 }, { 9,8,1,-1 }, { 15.8,-1,1,1 } };
     Matrix expTest = Matrix(5, 4, *exparray);
@@ -623,6 +703,7 @@ int main()
     matTwo.print();
     Matrix matThree = had(matOne, matTwo);
     matThree.print();
+    */
 }
 
 /*
