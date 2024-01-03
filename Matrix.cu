@@ -4,10 +4,13 @@
 
 #include <stdio.h>
 #include <iostream>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <random>
 #include <stdexcept>
 #include <math.h>
+#include <vector>
 
 int blockSize = 256; // TODO experiment with other sizes like 512, etc.
 
@@ -198,7 +201,7 @@ public:
         {
             throw std::invalid_argument("Matrix dimensions cannot be smaller than 1.");
         }
-        if (type == Matrix::InitType::Identity) // TODO make this whole thing a switch statement
+        if (type == Matrix::InitType::Identity)
         {
             if (r == c)
             {
@@ -206,7 +209,7 @@ public:
 
                 int numBlocks = ((r * c) + blockSize - 1) / blockSize;
 
-                fill <<<numBlocks, blockSize>>> (data, 0, rows, cols); // TODO make this more sophisticated
+                fill <<<numBlocks, blockSize>>> (data, 0, rows, cols);
                 cudaDeviceSynchronize();
                 diagfill <<<1, rows>>> (data, rows, 1); // TODO possibly extend for matrices with more than 1024 rows (larger than block size)
                 cudaDeviceSynchronize();
@@ -374,7 +377,7 @@ public:
 
         int numBlocks = ((this->rows * this->cols) + blockSize - 1) / blockSize;
 
-        matrixSub <<<numBlocks, blockSize>>> (this->data, other.data, result.data, this->rows, this->cols); // TODO make more sophisticated for the love of god
+        matrixSub <<<numBlocks, blockSize>>> (this->data, other.data, result.data, this->rows, this->cols);
         cudaDeviceSynchronize();
 
         return result;
@@ -404,7 +407,7 @@ public:
 
         int numBlocks = ((this->rows * this->cols) + blockSize - 1) / blockSize;
 
-        matrixSub <<<numBlocks, blockSize>>> (this->data, other.data, this->data, this->rows, this->cols); // calling regular add kernel but w/ left matrix as result
+        matrixSub <<<numBlocks, blockSize>>> (this->data, other.data, this->data, this->rows, this->cols); // calling regular sub kernel but w/ left matrix as result
         cudaDeviceSynchronize();
 
         return *this;
@@ -513,10 +516,6 @@ public:
 
         return result;
     }
-
-    // operator overload for float addition, subtraction, multiplication, (division?? integer division? modulo???) on matrix, hadamard (mat1.had(mat2);)
-    // or had(mat1, mat2);
-    
 };
 
 // global non-member function for making matrix-scalar multiplication commutative
@@ -525,7 +524,7 @@ Matrix operator*(const float scalar, const Matrix mat)
     return mat * scalar;
 }
 
-Matrix operator/(const float scalar, const Matrix mat) // TODO test
+Matrix operator/(const float scalar, const Matrix mat)
 {
     Matrix result(mat.rows, mat.cols);
     cudaMalloc(&result.data, mat.rows * mat.cols * sizeof(float));
@@ -555,7 +554,7 @@ Matrix had(const Matrix mat1, const Matrix mat2)
     return result;
 }
 
-Matrix avgToColumn(const Matrix mat)
+Matrix avgToColumn(const Matrix mat) // TODO fix for matrices larger than blocksize
 {
     Matrix result = Matrix(mat.rows, 1, 0.0f);
     cudaMalloc(&result.data, mat.rows * sizeof(float));
@@ -564,6 +563,51 @@ Matrix avgToColumn(const Matrix mat)
     cudaDeviceSynchronize();
 
     return result;
+}
+
+Matrix fromCSV(std::string path)
+{
+    std::ifstream file(path);
+    if (!file) 
+    {
+        throw std::invalid_argument("Invalid path or file does not exist: " + path);
+    }
+    // assumes the csv file is all digits, check if it's rectangular, then put everything into float array, call constructor, return
+    std::string line;
+    std::vector<float> values;
+    int rows = 0;
+    int cols = -1;
+
+    while (std::getline(file, line))
+    {
+        std::stringstream ss(line);
+        std::string cell;
+        std::vector<float> rowValues;
+
+        while (std::getline(ss, cell, ','))
+        {
+            rowValues.push_back(std::stof(cell));
+        }
+
+        if (cols == -1)
+        {
+            cols = rowValues.size();
+        }
+        else if (rowValues.size() != cols)
+        {
+            throw std::invalid_argument("Inconsistent number of columns at line " + std::to_string(rows + 1));
+        }
+
+        values.insert(values.end(), rowValues.begin(), rowValues.end());
+        rows++;
+    }
+
+    if (rows == 0 || cols == 0)
+    {
+        throw std::invalid_argument("Empty CSV file or invalid content in file: " + path);
+    }
+
+    return Matrix(rows, cols, values.data());
 }
 
 // TODO applying (atomic) math functions, saving matrices, loading matrices, more inplace functions (for example, distinguish using f(), f_() maybe)
@@ -585,6 +629,11 @@ Matrix avgToColumn(const Matrix mat)
 
 int main()
 {   
+    std::cout << "testing creating matrices from files\n";
+    Matrix X = fromCSV("XORin.csv");
+    Matrix Y = fromCSV("XORout.csv");
+    X.print();
+    Y.print();
     /*
     std::cout << "testing out matrix creation\n";
     Matrix a = Matrix(5, 5, Matrix::InitType::Random);
@@ -718,6 +767,10 @@ from there we can do whatever averaging we need to do over the vectors for gradi
 all of this batch training loop stuff is for later though
 
 i will have to make NN class first.
+functions to create various layers/activations
+
+whoa there buddy scope creep
+*/
 functions to create various layers/activations
 
 whoa there buddy scope creep
