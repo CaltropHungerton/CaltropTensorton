@@ -62,6 +62,7 @@ Matrix operator*(const float scalar, const Matrix mat);
 Matrix operator/(const float scalar, const Matrix mat);
 Matrix had(const Matrix mat1, const Matrix mat2);
 Matrix avgToColumn(const Matrix mat);
+Matrix fromCSV(std::string path);
 
 // CUDA kernels
 __global__ void fill(float* data, float val);
