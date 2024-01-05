@@ -11,6 +11,8 @@
 #include <stdexcept>
 #include <math.h>
 
+int blockSize = 256;
+
 class Matrix
 {
 public:
@@ -65,17 +67,18 @@ Matrix avgToColumn(const Matrix mat);
 Matrix fromCSV(std::string path);
 
 // CUDA kernels
-__global__ void fill(float* data, float val);
+__global__ void fill(float* data, float val, int rows, int cols);
 __global__ void diagfill(float* data, int n, float val);
-__global__ void matrixAdd(float* first, float* second, float* result);
-__global__ void matrixSub(float* first, float* second, float* result);
-__global__ void matrixDot(float* first, float* second, float* result, int n, int k);
-__global__ void matrixScalarMult(float* mat, float scalar, float* result);
-__global__ void matrixScalarDiv(float* mat, float scalar, float* result);
+__global__ void matrixAdd(float* first, float* second, float* result, int rows, int cols);
+__global__ void matrixSub(float* first, float* second, float* result, int rows, int cols);
+__global__ void matrixDot(float* first, float* second, float* result, int cols1, int cols2, int rows);
+__global__ void matrixScalarMult(float* mat, float scalar, float* result, int rows, int cols);
+__global__ void matrixScalarDiv(float* mat, float scalar, float* result, int rows, int cols);
 __global__ void matrixTranspose(float* src, float* dest, int rows, int cols);
-__global__ void matrixRELU(float* src, float* dest);
-__global__ void matrixExp(float* src, float* dest);
-__global__ void matrixHad(float* src1, float* src2, float* dest);
+__global__ void matrixRELU(float* src, float* dest, int size);
+__global__ void matrixExp(float* src, float* dest, int rows, int cols);
+__global__ void matrixLog(float* src, float* dest, int rows, int cols);
+__global__ void matrixHad(float* src1, float* src2, float* dest, int rows, int cols);
 __global__ void gradRELU(float* grad, float* data, float* dest);
-__global__ void matrixScalarReciprocal(float scalar, float* data, float* dest);
+__global__ void matrixScalarReciprocal(float scalar, float* data, float* dest, int rows, int cols);
 __global__ void avgToColumn(float* src, float* dest, int cols);
