@@ -21,7 +21,7 @@ get shape/dims
 matrix norms
 */
 
-__global__ void fill(float* data, float val, int rows, int cols)
+__global__ void fill(float* data, float val, int rows, int cols) // change to just size, skip the mult
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -121,6 +121,15 @@ __global__ void matrixExp(float* src, float* dest, int rows, int cols)
     if (idx < rows * cols)
     {
         dest[idx] = exp(src[idx]);
+    }
+}
+
+__global__ void matrixLog(float* src, float* dest, int rows, int cols) // TODO test this
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < rows * cols)
+    {
+        dest[idx] = log2(src[idx]);
     }
 }
 
@@ -516,6 +525,19 @@ public:
 
         return result;
     }
+
+    Matrix log() const // TODO test
+    {
+        Matrix result = Matrix(this->rows, this->cols);
+        cudaMalloc(&result.data, this->rows * this->cols * sizeof(float));
+
+        int numBlocks = ((this->rows * this->cols) + blockSize - 1) / blockSize;
+
+        matrixLog <<<numBlocks, blockSize>>> (this->data, result.data, this->rows, this->cols);
+        cudaDeviceSynchronize();
+
+        return result;
+    }
 };
 
 // global non-member function for making matrix-scalar multiplication commutative
@@ -606,7 +628,6 @@ Matrix fromCSV(std::string path)
     {
         throw std::invalid_argument("Empty CSV file or invalid content in file: " + path);
     }
-
     return Matrix(rows, cols, values.data());
 }
 
@@ -767,10 +788,6 @@ from there we can do whatever averaging we need to do over the vectors for gradi
 all of this batch training loop stuff is for later though
 
 i will have to make NN class first.
-functions to create various layers/activations
-
-whoa there buddy scope creep
-*/
 functions to create various layers/activations
 
 whoa there buddy scope creep
