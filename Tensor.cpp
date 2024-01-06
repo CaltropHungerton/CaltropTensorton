@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <set>
+#include <functional>
 
 class Tensor
 {
@@ -12,7 +13,6 @@ public:
 	void(*backprop)(Tensor*); // initialize this with a default function
 	std::string op;
 	bool param;
-	bool initialized; // already backpropped, modifies operator overloading behavior
 	float scalar; // for use in gradients where you're just multiplying things by scalars
 
 	Tensor(int r, int c, bool param) : value(Matrix(r, c, 0.0f)), gradients(Matrix(r, c, 0.0f)), backprop(&backwardsNull), op("n/a"), param(param) {}
@@ -91,7 +91,7 @@ public:
 	{
 		Tensor newtensor = Tensor(this->value.relu(), false);
 		newtensor.parents.push_back(const_cast<Tensor*>(this));
-		newtensor.backprop = &backwardsRelu;
+		// newtensor.backprop = &backwardsRelu;
 		newtensor.op = "relu";
 		return newtensor;
 	}
@@ -105,13 +105,67 @@ public:
 		return newtensor;
 	}
 
-	/*
-	rule of 5
-	functions: what do i do for transpose? just transpose the gradients as well?
-	do i even need rule of 5 for the time being? 
+	Tensor crossEntropy(const Tensor prob, const Tensor y) const
+	{
+		Tensor newtensor = Tensor(-1 * (had(prob.value.log(), y.value) + had((Matrix(prob.value.rows, prob.value.cols, 1) - prob.value).log(), (Matrix(y.value.rows, y.value.cols, 1) - y.value))), false); // TODO test
+		prob.gradients = prob.value - y.value;
+		newtensor.parents.push_back(const_cast<Tensor*>(&prob));
+		newtensor.op = "crossEntropy";
+		return newtensor;
+	}
 
-	do i need to worry about comp graph with duplicate
-	*/
+	// TODO check all rule of 5 stuff
+
+	~Tensor() {}
+
+	Tensor(Tensor&& other) noexcept
+		: value(std::move(other.value)),
+		gradients(std::move(other.gradients)),
+		parents(std::move(other.parents)),
+		backprop(other.backprop),
+		op(std::move(other.op)),
+		param(other.param),
+		scalar(other.scalar)
+	{}
+
+	Tensor(const Tensor& other)
+		: value(other.value),
+		gradients(other.gradients),
+		parents(other.parents),
+		backprop(other.backprop),
+		op(other.op),
+		param(other.param),
+		scalar(other.scalar)
+	{}
+
+	Tensor& operator=(Tensor&& other) noexcept
+	{
+		if (this != &other)
+		{
+			value = other.value;
+			gradients = Matrix(value.rows, value.cols, 0.0f);
+			// don't need to change parent vector or anything else really, i know this will only be reinitialized with the same thing
+			// should i optimize so that it doesn't remake the parent tensors unnecessarily? that's negligible i guess. inelegant, but ok
+		}
+		return *this;
+	}
+
+	Tensor& operator=(const Tensor& other)
+	{
+		if (this != &other)
+		{
+			value = other.value;
+			gradients = other.gradients;
+			parents = other.parents;
+			backprop = other.backprop;
+			op = other.op;
+			param = other.param;
+			scalar = other.scalar;
+		}
+		return *this;
+	}
+
+	
 
 	void print()
 	{
@@ -129,7 +183,7 @@ public:
 		if (param)
 		{
 			value -= epsilon * gradients;
-			gradients = Matrix(gradients.rows, gradients.cols, 0.0f); // do i even need? everything might get overwritten anyway
+			// gradients = Matrix(gradients.rows, gradients.cols, 0.0f); // with the move assignment operator we just make another one
 		}
 	}
 };
@@ -172,11 +226,6 @@ Tensor operator*(const float scalar, const Tensor t)
 	return t * scalar;
 }
 
-Tensor crossEntropy(Tensor probs, Tensor y) // TODO
-{
-
-}
-
 void backwardsAdd(Tensor* tensor)
 {
 	tensor->parents[0]->gradients += tensor->gradients;
@@ -216,11 +265,13 @@ void backwardsTranspose(Tensor* tensor) // TODO CHECK THIS (probably right)
 	tensor->parents[0]->gradients += tensor->gradients.T();
 }
 
+/*
 void backwardsRelu(Tensor* tensor)
 {
 	gradRELU <<< 1, tensor->value->rows * tensor->value->cols >>> (tensor->gradients, tensor->value, tensor->parents[0]->gradients); // TODO: make blocks/threads better
 	cudaDeviceSynchronize(); // wait i can't do this from the c++ file. i have to add this to my cuda c++ file TODO make function in other file
 }
+*/
 
 void backwardsRecip(Tensor* tensor)
 {
@@ -232,6 +283,13 @@ void backwardsSigmoid(Tensor* tensor)
 	Matrix sigmoid_derivative = had(tensor->value, (Matrix(tensor->value.rows, tensor->value.cols, 1) - tensor->value));
 	Matrix propagated_gradients = had(tensor->gradients, sigmoid_derivative);
 	tensor->parents[0]->gradients += propagated_gradients;
+}
+
+// there isn't a backwards crossEntropy function because we did it when we calculated the tensor
+
+void backwardsSoftmax(Tensor* tensor)
+{
+	
 }
 
 void backwardsNull(Tensor* tensor) {}
@@ -259,18 +317,14 @@ std::vector<Tensor*> topologicalSort(Tensor* root)
 
 /*
 I think that the way i'll handle broadcasting: i'll just add another field that lets you set something as a bias and i'll call a bespoke add/sub/whatever method when i'm
-creating the value for the new tensor. After that I'll 
+creating the value for the new tensor. After that I'll g
 */
-
-class MLP
-{
-	
-};
 
 /*
 thinking about how broadcasting will work:
 
-Although i have the standard safeguards in place in my matrix library, i will assume that if the dimensions ever differ between 
+Although i have the standard safeguards in place in my matrix library, i will assume that if the dimensions ever differ between the tensors
+then we can broadcast
 */
 
 // need to think about what to add in order to allow the weights to broadcast efficiently when doing minibatches
@@ -314,6 +368,7 @@ how will inference work? I haven't even thought about how the shape of the input
 int main()
 {
 	// create some tensors, do ops, see the computational graph, debug gradient flows.
+	std::cout << "Hello World!\n";
 }
 
 /*
