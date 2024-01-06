@@ -46,7 +46,7 @@ backprop function just adds that to the probs tensor
 
 /*
 move semantics will probably be important for forward passes to avoid inefficiencies when reassigning
-i'll only need to update values, gradients, MAYBE scalar probably not
+i'll only need to update values, gradients
 
 
 */
@@ -67,6 +67,19 @@ call backwards function using reference to vector of pointers, if param, update 
 then, confirm to move on to test set ()
 */
 
+/*
+i have to think about what the input/output pairs should look like
+
+generate two digits, either 0 or 1
+if sum is 1: 1. else: 0
+
+X will be vertical 2 columns of first two digits
+
+we can just create a csv file of training data
+
+i should go back and add constructor for creating matrices from csv file to the Matrix.cu
+*/
+
 
 
 float eps = .001;
@@ -83,13 +96,13 @@ for (int i = 0; i < numEpochs; i++)
 	{
 		if (firstPass)
 		{
-			Tensor W1 = Tensor(Matrix(2, 2, Matrix::InitType::Xavier), true);
+			Tensor W1 = Tensor(Matrix(2, 2, Matrix::InitType::Xavier), true); // is xavier initialization a good idea for such small dims...
 			Tensor b1 = Tensor(Matrix(2, 1, Matrix::InitType::Xavier), true);
 			Tensor W2 = Tensor(Matrix(1, 2, Matrix::InitType::Xavier), true);
 			Tensor b2 = Tensor(Matrix(1, 1, Matrix::InitType::Xavier), true);
 
-			Tensor X = Tensor(input..., false);
-			Tensor Y = Tensor(input..., false);
+			Tensor X = Tensor(fromCSV("XORin.csv"), false);
+			Tensor Y = Tensor(fromCSV("XORout.csv"), false);
 
 			Tensor J1 = W1 * X;
 			Tensor K1 = J1 + b1;
@@ -103,6 +116,9 @@ for (int i = 0; i < numEpochs; i++)
 			
 			Tensor Loss = CrossEntropy(A2, Y); // add cross entropy calculation, figure out how this works for minibatches
 
+			// maybe print Loss scalar if j == batchesPerEpoch - 1?
+			//
+
 			// next, we go from the Loss tensor, traversing the entire computational graph. we append each tensor pointer
 			// to traversal in reverse topologically sorted order
 
@@ -113,8 +129,6 @@ for (int i = 0; i < numEpochs; i++)
 				(*x)->backprop(*x); // is this correct?
 				(*x)->update();
 			}
-
-			
 
 			firstPass = false;
 		}
