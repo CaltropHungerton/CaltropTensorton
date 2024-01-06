@@ -15,9 +15,7 @@
 int blockSize = 256; // TODO experiment with other sizes like 512, etc.
 
 /*
-make 2d matrix of various dimensions (generalize later, this is just a first attempt)
-initializations with data/arrays, from file
-get shape/dims
+get shape/dims?
 matrix norms
 */
 
@@ -57,7 +55,6 @@ __global__ void matrixSub(float* first, float* second, float* result, int rows, 
     }
 }
 
-// k is the number of cols of the second matrix, sry for obscurity, i just wanted compactness
 __global__ void matrixDot(float* first, float* second, float* result, int cols1, int cols2, int rows)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -648,6 +645,7 @@ Matrix fromCSV(std::string path)
 // sums, axis sums
 // data loaders, whatever would be convenient as an interface for the dataloading functions in the neural network class
 
+/*
 int main()
 {   
     std::cout << "testing creating matrices from files\n";
@@ -655,7 +653,7 @@ int main()
     Matrix Y = fromCSV("XORout.csv");
     X.print();
     Y.print();
-    /*
+    
     std::cout << "testing out matrix creation\n";
     Matrix a = Matrix(5, 5, Matrix::InitType::Random);
     a.print();
@@ -725,8 +723,8 @@ int main()
 
     Matrix z = 1 / y;
     z.print();
-    */
-    /*
+    
+    
     Matrix first = Matrix(5, 5, Matrix::InitType::Identity);
     Matrix second = Matrix(5, 3, Matrix::InitType::He);
     first.print();
@@ -747,16 +745,16 @@ int main()
     mama.print();
     joe /= 4;
     joe.print();
-    */
-    /*
+    
+    
     std::cout << "testing RELU\n";
     float thearray[5][4] = { {1,-3.2359875,3,4},{1,-5,-3,0},{1,1,-157,0},{1,1,1,-1},{1,-1,1,1} };
     Matrix reluTest = Matrix(5, 4, *thearray);
     reluTest.print();
     Matrix reluTested = reluTest.relu();
     reluTested.print();
-    */
-    /*
+    
+    
     std::cout << "testing exp\n";
     float exparray[5][4] = { {1, -3.2359875, 3, 4}, { 12,-5,-3,0 }, { 5,6,-157,7 }, { 9,8,1,-1 }, { 15.8,-1,1,1 } };
     Matrix expTest = Matrix(5, 4, *exparray);
@@ -773,8 +771,9 @@ int main()
     matTwo.print();
     Matrix matThree = had(matOne, matTwo);
     matThree.print();
-    */
+    
 }
+*/
 
 /*
 
