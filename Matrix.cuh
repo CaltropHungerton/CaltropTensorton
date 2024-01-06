@@ -46,6 +46,7 @@ public:
     Matrix T() const;
     Matrix relu() const;
     Matrix exp() const;
+    Matrix log() const;
 
     // operator overloads
     Matrix operator+(const Matrix& other) const;
