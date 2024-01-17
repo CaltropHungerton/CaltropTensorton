@@ -86,7 +86,6 @@ float eps = .001;
 int numEpochs = 10;
 int batchesPerEpoch;
 bool firstPass = true;
-std::vector<Tensor*> traversal;
 
 // make a function for initializing matrix from X! call it input
 
