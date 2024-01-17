@@ -4,6 +4,20 @@
 #include <set>
 #include <functional>
 
+// forward declarations for tensor class and backprop functions
+class Tensor;
+void backwardsAdd(Tensor* tensor);
+void backwardsSub(Tensor* tensor);
+void backwardsDot(Tensor* tensor);
+void backwardsScalarMult(Tensor* tensor);
+void backwardsHad(Tensor* tensor);
+void backwardsExp(Tensor* tensor);
+void backwardsTranspose(Tensor* tensor);
+void backwardsRecip(Tensor* tensor);
+void backwardsSigmoid(Tensor* tensor);
+void backwardsSoftmax(Tensor* tensor);
+void backwardsNull(Tensor* tensor);
+
 class Tensor
 {
 public:
@@ -105,10 +119,10 @@ public:
 		return newtensor;
 	}
 
-	Tensor crossEntropy(const Tensor prob, const Tensor y) const
+	Tensor crossEntropy(Tensor prob, const Tensor y) const
 	{
 		Tensor newtensor = Tensor(-1 * (had(prob.value.log(), y.value) + had((Matrix(prob.value.rows, prob.value.cols, 1) - prob.value).log(), (Matrix(y.value.rows, y.value.cols, 1) - y.value))), false); // TODO test
-		prob.gradients = prob.value - y.value;
+		prob.gradients = prob.value - y.value; // pretty sure i'll have to divide by batch size actually
 		newtensor.parents.push_back(const_cast<Tensor*>(&prob));
 		newtensor.op = "crossEntropy";
 		return newtensor;
